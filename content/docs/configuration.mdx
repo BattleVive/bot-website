@@ -1,67 +1,43 @@
 ---
 title: Configuration
-description: Server-level configuration, permissions, and environment settings.
+description: Server-level configuration, permissions, and runtime settings.
 ---
 
-Configuration is split between Discord server settings and deployment environment variables.
+Configuration is split between Discord server settings and deployment settings.
 
 ## Discord server configuration
 
-Each server has an independent `guild_config` row.
+Each server has an independent `guild_config` row. Use `/config show` to display leaderboard, active-lobby, role, rank cooldown, command-channel, and debug-export settings. Public channel rules apply to `/rank`: a block denies the channel; any live allow rule changes the default to deny. Threads inherit their parent channel. Cooldowns are in memory and reset with the process.
 
-Use `/config show` to display:
+## Required runtime settings
 
-- leaderboard channel and limit;
-- active-lobby channel;
-- new-lobby notification role;
-- Website Moderator role;
-- `/rank` cooldown, including whether it is disabled;
-- whitelisted and blacklisted public-command channels;
-- debug-export status.
+The bot requires `DATABASE_URL`, `DISCORD_TOKEN`, `SUPABASE_URL`, `SUPABASE_API_KEY`, and `BATTLEVIVE_URL`. `DISCORD_COMMAND_GUILD_ID` is optional. Leave it blank in production for global command registration; use a positive guild snowflake during development.
 
-Public channel rules currently apply only to `/rank`. A block rule denies the channel. Otherwise, any live whitelist changes the default to deny; with no live whitelist, other channels remain allowed. Threads use their parent channel. Cooldowns are held in memory per user and guild, so a restart clears active windows.
+`DATABASE_URL`, `DISCORD_TOKEN`, `SUPABASE_API_KEY`, `BOOTSTRAP_JWT`, and `BOOTSTRAP_REFRESH_TOKEN` also support a corresponding `*_FILE` variable. The file form takes precedence, but defining both forms is a configuration error and stops startup. Secret files must contain a non-empty value and should be readable only by the runtime identity.
 
-<Cards>
-  <Card title="Leaderboard" href="/docs/leaderboard" description="Channel, size, update behavior, and troubleshooting." />
-  <Card title="Active lobbies" href="/docs/active-lobbies" description="Channel, roles, notifications, and live-post behavior." />
-  <Card title="Commands" href="/docs/commands" description="Exact configuration command reference." />
-</Cards>
+`SUPABASE_URL` must use HTTPS without embedded credentials. `BATTLEVIVE_URL` must use HTTPS and contain no credentials, query, or fragment.
 
-## Deployment environment
+## Battlevive token persistence
 
-Create `utils/.env` from `utils/.env.example`, then run `utils/init.sh` to generate the root `.env` and the persisted Battlevive token file.
+`BATTLEVIVE_TOKEN_STORE` accepts:
 
-The deployment expects:
+- `file` (default): use `BATTLEVIVE_TOKEN_PATH`, preserving local and non-AWS behavior. The running local bot owns and rotates `app/data/bot/battlevive_tokens.json`, which is its dedicated Compose bot-data mount;
+- `ssm`: require `BATTLEVIVE_TOKEN_SSM_PARAMETER` and `AWS_REGION` and store the access/refresh pair as one JSON SecureString through the instance role.
 
-- `DISCORD_TOKEN`;
-- `DISCORD_COMMAND_GUILD_ID` - optional;
-- `SUPABASE_URL`;
-- `SUPABASE_API_KEY`;
-- `BATTLEVIVE_URL`;
-- `LOG_LEVEL`;
-- `DISCORD_LOG_LEVEL`;
-- `POSTGRES_USER`;
-- `POSTGRES_PASSWORD`;
-- `POSTGRES_DB`;
-- `DATABASE_URL`.
+An SSM write is attempted three times. A final failure degrades health and produces a critical log without exposing token values.
 
-The setup helper also creates `BOOTSTRAP_JWT` and `BOOTSTRAP_REFRESH_TOKEN` in the generated root `.env`.
+For a local source build, keep settings in `utils/.env` and start the base and
+development override together. `utils/init.sh` obtains the bootstrap pair and
+writes it there; do not paste generated token values manually. The rootless
+Podman development override gives the persistent bot-data mount to the
+container's fixed non-root UID so token refreshes remain writable.
 
-## Command registration
+## AWS production values
 
-Leave `DISCORD_COMMAND_GUILD_ID` blank in production to register commands globally.
+Static secrets use `/battlevive/production/secrets/...`; non-secret configuration uses `/battlevive/production/config/...`; rotating tokens use `/battlevive/production/tokens`; atomic non-secret deployment state uses `/battlevive/production/deployment/state`.
 
-Set it to one positive Discord guild snowflake during development for faster guild-scoped synchronization. Invalid values stop startup. Global command changes can take longer to appear in Discord.
+Secret values are entered interactively and are not Terraform inputs or state. At boot, the instance role renders them atomically below root:10001 mode-`0750` `/run/battlevive`. Each secret file, including `postgres-password`, is root:10001 mode `0640`: the fixed UID/GID 10001 runtime can read it but cannot replace it, and other users cannot read it. PostgreSQL consumes the password through `POSTGRES_PASSWORD_FILE`; the value must not be duplicated in Compose, command arguments, logs, or documentation.
 
-## URL validation
+Root-only mode-`0600` `/run/battlevive/host.env` contains no secrets. It supplies the AWS region, operations bucket, application log group, `/opt/battlevive` deployment root, and isolated `/var/lib/battlevive/{bot,postgresql}` paths. AWS production does not use a `.env` file.
 
-`SUPABASE_URL` must use HTTPS and must not contain embedded credentials.
-
-`BATTLEVIVE_URL` must:
-
-- use HTTPS;
-- contain no embedded credentials;
-- contain no query string;
-- contain no fragment.
-
-It is used to construct active-lobby match links.
+Use `infra/tools/migrate-secrets.sh` for the interactive migration. Never paste secret values into an SSM command, shell history, Terraform variable, GitHub variable, or issue.

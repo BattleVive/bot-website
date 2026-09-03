@@ -1,107 +1,76 @@
 ---
 title: Deployment
-description: Deploy, upgrade, roll back, and operate Battlevive Bot with Docker or Podman Compose.
+description: Deploy, upgrade, roll back, and recover Battlevive Bot locally or on AWS.
 ---
 
-## Requirements
+## Local and non-AWS deployment
 
-- Docker or Podman with Compose support;
-- a Discord bot token;
-- Battlevive and Supabase API credentials;
-- PostgreSQL credentials.
-
-## Initial setup
+Prepare local configuration, then build the source tree and start the complete
+local Compose stack:
 
 ```bash
 cd utils
 cp .env.example .env
 # Fill the required values in .env
 ./init.sh
+cd ..
+podman compose --env-file utils/.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
 
-The setup script installs helper dependencies and Chromium, opens the Discord login flow, generates the root `.env`, and initializes `app/data/battlevive_tokens.json`.
+`docker-compose.dev.yml` is an override, never a standalone file. It replaces
+the published image with one local `battlevive-bot:local` build and supplies the
+container env-file; `docker-compose.yml` supplies PostgreSQL, isolated
+persistent paths, networks, migrations, and health checks. The rootless Podman
+override assigns its persistent bot-data mount to the fixed non-root runtime
+UID. The default token store is `app/data/bot/battlevive_tokens.json`. The base
+Compose file uses bounded local container logs and does not require AWS.
 
-## Start the services
+## Production releases
 
-From the repository root:
+Production is release-driven. Only stable GitHub Releases named `vMAJOR.MINOR.PATCH` publish images. A release such as `v1.5.1` produces `1.5.1`, `1.5`, `1`, `latest`, and `sha-<full-commit-sha>` tags when SemVer ordering permits those moving aliases. Backports update their minor alias but never downgrade `latest` or production.
 
-```bash
-docker compose pull
-docker compose up -d
-```
-
-Podman equivalent:
-
-```bash
-podman compose pull
-podman compose up -d
-```
-
-The production Compose file uses the public `voxix/battlevive-bot:latest` image. Published images support Linux AMD64 and ARM64.
-
-## Services and persistent data
-
-Compose defines:
-
-- `bot`, mounting `./app/data:/app/data` and `./app/logs:/app/logs`;
-- `db`, using PostgreSQL 18, loading bootstrap SQL from `./app/init-db`, and storing data under `./app/data/postgresql`.
-
-PostgreSQL binds to `127.0.0.1:5432` for local host access. Bot-to-database traffic uses `db:5432` on the internal Compose network.
-
-The bot waits for the PostgreSQL healthcheck before starting.
-
-### SELinux hosts
-
-The overlapping bot-data and PostgreSQL mounts intentionally use the shared `:z` label. Keep both mounts on `:z`. Changing either to private `:Z` can prevent PostgreSQL from accessing its files after another container relabels the parent directory.
-
-## Logs
-
-Follow bot logs:
-
-```bash
-docker compose logs -f bot
-```
-
-or:
-
-```bash
-podman compose logs -f bot
-```
-
-The bot also writes rotating files under `app/logs`. Bot and Discord logs rotate at 5 MiB with three backups.
-
-## Upgrade
-
-Before starting the new bot image against an existing PostgreSQL volume, apply `app/init-db/09_command_controls_and_identity_recovery.sql`. Fresh databases load it automatically. Migration 09 retains `users.discord_id`, so older bot images remain schema-compatible during rollback.
-
-```bash
-docker compose pull
-docker compose up -d
-```
-
-## Rollback
-
-Every published commit has an immutable image tag:
+The release workflow tests the exact tag commit, builds Linux AMD64 and ARM64 images with SBOM and provenance, and deploys the verified manifest as an immutable reference:
 
 ```text
-voxix/battlevive-bot:sha-<full-commit-sha>
+voxix/battlevive-bot@sha256:<manifest-digest>
 ```
 
-Pin the required tag in `docker-compose.yml`, then recreate only the bot:
+Ordinary pushes to `main` do not publish `latest`.
+
+## AWS production layout and acceptance
+
+The Terraform and host-automation contract targets one Systems Manager-managed EC2 instance in `eu-north-1`:
+
+- its security group has no ingress rules and `sshd` is disabled only after a second SSM session succeeds;
+- PostgreSQL is reachable by the bot only on the internal Compose backend network and is not published on the host;
+- the bot and PostgreSQL use separate `/var/lib/battlevive/bot` and `/var/lib/battlevive/postgresql` paths;
+- Parameter Store values are rendered under root:10001 mode-`0750` `/run/battlevive`, with root:10001 mode-`0640` files readable by the fixed runtime group;
+- the release bundle is active at `/opt/battlevive/current`, and the only installed deploy executable is `/usr/local/libexec/battlevive/deploy`;
+- application logs go to stdout and the AWS Compose override selects the provisioned `/battlevive/production/application` CloudWatch group;
+- numbered migrations complete successfully before the bot starts;
+- database and bot health must pass before a deployment is accepted.
+
+Start an administrative session through the helper, which resolves the instance by project and environment tags:
 
 ```bash
-docker compose pull bot
-docker compose up -d --no-deps bot
+infra/tools/ssm-session.sh
 ```
 
-Keep the SHA tag pinned until deliberately returning to `latest`.
+No inbound SSH rule or SSH key is required after the SSM transition is accepted. Before removing ingress or disabling `sshd`, prove a second new SSM session and CloudWatch session logging while the first session remains open.
 
-## Local source build
+## Deployment and rollback
 
-Use the development Compose file:
+The `battlevive-production-deploy` SSM document invokes the canonical installed executable. The command downloads a checksummed bundle from the operations bucket, holds the common operations lock, takes and verifies a pre-deploy database backup, pulls the exact image digest, runs migrations, and waits for database and bot health within a five-minute budget. It atomically records the version, digest, bundle key, and bundle checksum in `/battlevive/production/deployment/state` only after success.
 
-```bash
-docker compose -f docker-compose.dev.yml up -d --build
-```
+If startup, health, or digest verification fails, the deployment script restores the previous bundle and digest. Database migrations must therefore remain compatible with at least the previous deployed image; automatic rollback does not downgrade the database.
 
-It builds and tags `battlevive-bot:local`. Do not add a local build context to the production `docker-compose.yml`.
+## Backups and recovery
+
+The configured weekly job creates a custom-format PostgreSQL archive, validates it with `pg_restore --list`, checksums it, and uploads a unique S3 key with a manifest. Weekly backups are retained for 84 days and pre-deploy backups for 30 days. The configured monthly job restores a backup under the common lock into an isolated temporary database and validates the expected schema and row-count manifest.
+
+The recovery objective is a seven-day RPO and two-hour RTO. It is not accepted until a real S3 upload, checksum validation, isolated restore, alarm delivery, and timed recovery drill succeed. Verify the archive checksum and manifest, restore into an empty database, run pending migrations, start the exact known-good digest, and confirm health before resuming normal deployment.
+
+## Instance sizing
+
+Production stays on `t4g.micro` until 168 post-monitoring hours provide at least 98% of expected datapoints without a gap above two periods and satisfy every memory, swap, disk/inode, OOM, telemetry, bot-health, status-check, and CPU-credit gate. A resize to `t4g.nano` requires a fresh backup and snapshot plus 15 minutes of post-resize validation. Missing data or any failed gate keeps or restores `t4g.micro`.

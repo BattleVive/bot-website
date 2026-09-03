@@ -5,6 +5,12 @@ description: PostgreSQL tables, relationships, and ownership rules.
 
 Battlevive Bot stores synchronized Battlevive data and per-server Discord state in PostgreSQL.
 
+## Schema migrations
+
+The one-shot `migration` service applies numbered files from `app/init-db/` before the bot starts. It takes a PostgreSQL advisory lock, runs each unapplied file transactionally, and records `version`, `filename`, `sha256`, and `applied_at` in `schema_migrations`. A changed checksum for an applied migration stops deployment.
+
+When the ledger is first adopted on an existing database, the current idempotent migrations are replayed once and recorded. Repeated execution is a no-op. New migrations must remain compatible with at least the previous deployed image so application rollback never needs a database downgrade.
+
 ## Core tables
 
 ### `users`
@@ -94,3 +100,9 @@ When a lobby disappears from the authoritative upstream list, live Discord refer
 Synchronize the authoritative `users` snapshot before `lobbies`, `lobby_rosters`, and `season_ratings`, because those records reference active local users. Ratings and lobby references absent from the same users response are sanitized before dependent writes.
 
 Reject roster user IDs that are not already present locally before writing roster arrays.
+
+## Backup and restore
+
+Configured weekly and pre-deploy backups use PostgreSQL custom format, must pass `pg_restore --list`, and carry SHA-256 and application/schema metadata. Weekly objects remain for 84 days and pre-deploy objects for 30 days. The monthly restore job shares the deployment/backup lock, creates an isolated database, validates expected tables and row counts, reports a CloudWatch metric, and drops the temporary database.
+
+The production recovery objective is a seven-day RPO and two-hour RTO, not a measured guarantee. Accept it only after a real S3 backup and timed restore drill pass checksum, manifest, schema, migration, database-health, and bot-health validation.

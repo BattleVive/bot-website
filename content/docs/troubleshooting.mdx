@@ -1,69 +1,40 @@
 ---
 title: Troubleshooting
-description: Common startup, API, database, command, role, leaderboard, and active-lobby failures.
+description: Diagnose startup, health, credentials, migrations, backups, and Discord behavior.
 ---
 
 ## Bot container does not start
 
-- Check `docker compose logs -f bot` or `podman compose logs -f bot`.
-- Confirm the generated root `.env` exists.
-- Confirm required values are present, especially `DISCORD_TOKEN`, `SUPABASE_API_KEY`, `POSTGRES_PASSWORD`, and `DATABASE_URL`.
-- Confirm `app/data/battlevive_tokens.json` contains a valid token pair, or both bootstrap token variables exist.
-- Confirm the database service is healthy.
+Follow stdout logs with `podman compose logs -f bot`. Locally, run the base file and `docker-compose.dev.yml` override together, confirm `utils/.env`, the writable `app/data/bot` path, and a healthy database. If the error says a complete token pair is required, run `utils/init.sh`; it writes the bootstrap pair without printing it. On AWS, confirm root:10001 mode-`0640` files below mode-`0750` `/run/battlevive`, root-only non-secret `host.env`, the secret-rendering systemd unit, instance-role access to exact Parameter paths, and the `/battlevive/production/application` container log stream. Production does not use `.env` or write `app/logs` files.
 
-## Credentials are missing or invalid
+## Credentials or token persistence fail
 
-The bot first reads the persisted token file. If it is absent or invalid, both bootstrap token variables are required.
+Local deployments default to the file token store and may regenerate credentials through `utils/init.sh`. AWS production uses the SSM token store and the EC2 role. Confirm the configured parameter and region without printing its SecureString. Three failed persistence attempts degrade the bot heartbeat; correct IAM or SSM availability and verify health recovers.
 
-Regenerate credentials through the supported setup flow:
+## Health is stale or unhealthy
 
-```bash
-cd utils
-cp .env.example .env
-./init.sh
-```
+The container health command accepts `/tmp/battlevive-health.json` only when its status is healthy and timestamp is no older than 90 seconds. Check Discord readiness, `SELECT 1`, each required background service, and token-persistence status. Docker does not restart a running container merely because it becomes unhealthy, so use the deployment/operations health gate to investigate or roll back.
 
-## Battlevive requests repeatedly return 401
+## Migration fails
 
-The client refreshes tokens after the first 401 and retries once. Repeated failures usually mean the refresh token is rejected or the persisted token file cannot be updated.
+A migration checksum mismatch means an already-recorded SQL file changed. Restore the historical file exactly and create a new numbered migration; never rewrite production history. For SQL errors, inspect the migration service's stdout, correct the new migration, and rerun deployment. The advisory lock serializes concurrent runners.
 
-Regenerate credentials and confirm `/app/data` is writable and persistent.
+## Database is unhealthy
 
-## Database service is unhealthy
+Confirm `POSTGRES_PASSWORD_FILE`, the dedicated PostgreSQL host path, free disk/inodes, and the internal backend network. Bot traffic uses `db:5432`; PostgreSQL is not published on the production host. Do not delete or recursively change ownership of the production database directory.
 
-- Check `docker compose logs -f db`.
-- Confirm `POSTGRES_PASSWORD` is set.
-- Confirm bot traffic uses `db:5432`, not the host-only `127.0.0.1:5432` binding.
+## SSM access fails
 
-On SELinux hosts, PostgreSQL permission errors after recreating the bot can be caused by mismatched labels on overlapping mounts. Use shared `:z` labels on both mounts. Do not delete the database directory or recursively change its ownership for this error.
+Use `infra/tools/ssm-session.sh`, which resolves the tagged instance. Check instance status, SSM Agent, outbound connectivity, instance profile, and SSM association state. Do not reopen port 22 as a shortcut. During the initial transition, keep the first working session open until a second new SSM session succeeds.
 
-## Slash command fails
+## Backup or restore drill fails
 
-Inspect `app/logs/` or container logs. Typical causes are:
+Check the backup/restore systemd unit, operations bucket permissions, CloudWatch failure metric, available disk, archive checksum, `pg_restore --list`, and manifest. A deployment must abort when its pre-deploy backup fails; do not overwrite the live database to test an archive.
 
-- missing Discord permissions;
-- unavailable Battlevive or Supabase credentials;
-- database connectivity failures.
+## Deployment rolled back
 
-For `/rank`, a channel-policy denial is private and does not start the cooldown. If the response asks you to wait, the accepted prior invocation consumed the configured cooldown even if later work failed. Administrators can inspect `/config show`, adjust channel rules, or temporarily set `/config rank cooldown seconds:0`.
+Inspect the custom SSM deployment command output plus dimensionless `Battlevive/Production` DeploymentFailure/DeploymentSuccess metrics for bundle checksum, image pull, migration, startup, digest, or health failure. Atomic `/battlevive/production/deployment/state` updates only after success and must be restored if rollback occurs. Keep the previous bundle and exact digest available, and do not move floating Docker tags manually to bypass the release workflow. A rollback is not accepted until its prior digest, database health, and bot health are reverified.
 
-An ambiguous identity means multiple active upstream users match the same Discord member name. Correct the upstream names so the match is unique, then retry; the bot intentionally links neither account automatically.
+## Slash commands or roles fail
 
-If notification-role configuration succeeds but deletion remains pending, restore Manage Roles and the correct role hierarchy, then rerun `/create_roles`, change the configured role again, or reset active-lobby configuration. Only the ownership-tracked generated role is retried.
-
-If an account was restored with the same UUID, run `/refresh` or retry `/rank`; the retained recovery link is rehydrated automatically. A different UUID is treated as new and does not recover historical ratings or lobby data.
-
-## Slash commands are missing or stale
-
-Leave `DISCORD_COMMAND_GUILD_ID` blank for production global registration. Global updates can take time.
-
-During development, set it to a positive guild snowflake and restart the bot for rapid guild-scoped registration.
-
-## Feature-specific troubleshooting
-
-<Cards>
-  <Card title="Rank cards" href="/docs/rank-cards" description="Registration and account-link errors." />
-  <Card title="Roles and identity" href="/docs/roles-and-identity" description="Role hierarchy, permissions, and matching failures." />
-  <Card title="Leaderboard" href="/docs/leaderboard" description="Channel, limit, and stale-image failures." />
-  <Card title="Active lobbies" href="/docs/active-lobbies" description="Missing posts, notifications, rosters, maps, and disputes." />
-</Cards>
+Container/CloudWatch logs usually identify missing Discord permissions, unavailable upstream credentials, or database failures. For command policies, cooldowns, ambiguous identity, active-lobby roles, and recovery links, inspect `/config show` and the relevant feature page. Leave `DISCORD_COMMAND_GUILD_ID` blank in production; global command updates can take time.
