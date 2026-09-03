@@ -7,7 +7,13 @@ Configuration is split between Discord server settings and deployment settings.
 
 ## Discord server configuration
 
-Each server has an independent `guild_config` row. Use `/config show` to display leaderboard, active-lobby, role, rank cooldown, command-channel, and debug-export settings. Public channel rules apply to `/rank`: a block denies the channel; any live allow rule changes the default to deny. Threads inherit their parent channel. Cooldowns are in memory and reset with the process.
+Each server has an independent `guild_config` row. Use `/config show` to display leaderboard, active-lobby, guide-forum, role, rank cooldown, command-channel, and debug-export settings. Public channel rules apply to `/rank`: a block denies the channel; any live allow rule changes the default to deny. Threads inherit their parent channel. Cooldowns are in memory and reset with the process.
+
+## Guide forum posts
+
+Guide posts reconcile every five minutes and immediately after `/refresh`, guide configuration changes, or a raw message deletion. Choose a forum channel where the bot has View Channel, Send Messages, Read Message History, Manage Threads, and permission to mention the selected role. Source Markdown cannot create mentions; creation posts use restricted allowed mentions for only the selected safe role.
+
+Changing forums archives old managed posts and publishes replacements in the new forum. Missing posts are recreated. Website removals archive posts by default; automatic deletion is opt-in. Reset always archives.
 
 ## Required runtime settings
 

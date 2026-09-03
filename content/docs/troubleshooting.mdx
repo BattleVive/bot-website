@@ -38,3 +38,6 @@ Inspect the custom SSM deployment command output plus dimensionless `Battlevive/
 ## Slash commands or roles fail
 
 Container/CloudWatch logs usually identify missing Discord permissions, unavailable upstream credentials, or database failures. For command policies, cooldowns, ambiguous identity, active-lobby roles, and recovery links, inspect `/config show` and the relevant feature page. Leave `DISCORD_COMMAND_GUILD_ID` blank in production; global command updates can take time.
+# Guide forum posts
+
+If guide posts are stale or missing, verify the configured channel is a forum and that the bot has View Channel, Send Messages, Read Message History, Manage Threads, and role-mention permission. A deleted managed post is recreated on reconciliation. A website-removed guide is archived unless automatic deletion is enabled; `/config reset guides` always archives managed guide posts.

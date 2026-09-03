@@ -83,3 +83,6 @@ Only a stable `vMAJOR.MINOR.PATCH` GitHub Release publishes Docker Hub tags. The
 ## Assets
 
 Review `app/assets/THIRD_PARTY_ASSETS.md` before modifying or redistributing bundled Battlerite material.
+# Guide reconciliation
+
+Guide forum reconciliation runs every five minutes. Source and service tests are CI-safe and use fixtures/fakes; live Discord forum publication, pings, recovery, archival, deletion, and reset are manual integration checks after regenerating and populating `utils/.env`.

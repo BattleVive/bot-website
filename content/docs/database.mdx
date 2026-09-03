@@ -64,6 +64,7 @@ Stores one independent configuration row per Discord server, including:
 - Website Moderator role;
 - active-lobby baseline state.
 - rank cooldown from 0 through 3600 seconds (default 20).
+- guide forum channel, notification role, and automatic-deletion setting (default false).
 
 ### `guild_command_channels`
 
@@ -72,6 +73,10 @@ Stores one `allow` or `block` classification per guild/channel pair. Reclassific
 ### `guild_created_roles`
 
 Records only notification roles actually created by the bot after migration 09, keyed by guild and purpose. Only these exact roles are eligible for automatic deletion. Same-named legacy or custom roles are never backfilled or adopted.
+
+### `guide_threads`
+
+Stores only `(guild_id, source_guide_id)`, the Discord forum thread ID, and the upstream modification timestamp. Guide Markdown, rendered content, titles, URLs, fingerprints, attachments, and API payloads are never persisted.
 
 ### `leaderboard_slots`
 
