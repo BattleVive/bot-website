@@ -1,7 +1,7 @@
 # BattleVive Bot website
 
 The website and documentation hub for
-[BattleVive Bot](https://github.com/voxix-dev/battlevive-bot), a Discord bot
+[BattleVive Bot](https://github.com/BattleVive/discord-bot), a Discord bot
 that brings BattleVive competition directly into community servers.
 
 The site introduces the bot's player rank cards, synchronized Discord roles,
