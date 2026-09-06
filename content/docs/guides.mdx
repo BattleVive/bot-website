@@ -1,0 +1,12 @@
+---
+title: Guides
+description: Publish Battlevive guides as maintained Discord forum posts.
+---
+
+Configure a Discord forum with `/config guides channel`. The bot creates one post per public Battlevive guide, sends the configured `Guide Updates` notification on initial publication, and checks the guide catalogue every five minutes.
+
+Only the guide identity, Discord thread ID, and upstream modification time are retained. Markdown is fetched only when needed to create or update a post, rendered in memory, and is never stored in PostgreSQL or on disk.
+
+If a managed post is deleted, the next reconciliation recreates it and sends the normal creation notification. Staff messages and unrelated bot replies in a guide thread are preserved during guide updates.
+
+When a guide leaves the website, its post is archived by default. Enable `/config guides automatic_deletion enabled:true` to delete it instead. `/config reset guides` always archives managed posts and clears the configuration.

@@ -24,7 +24,7 @@ The command:
 - refreshes Battlevive users, lobbies, and season ratings;
 - synchronizes the local database;
 - updates MMR tier roles in the invoking server;
-- requests leaderboard and active-lobby reconciliation.
+- requests leaderboard, active-lobby, and guide reconciliation.
 
 Only one manual refresh can run at a time.
 
@@ -32,7 +32,7 @@ Only one manual refresh can run at a time.
 
 Requires **Manage Roles** and can only be used inside a server.
 
-Creates or validates all MMR tier roles plus the `Active Lobby` and `Website Moderator` notification defaults. Notification roles created by the bot are ownership-tracked; custom and legacy same-named roles are never adopted for automatic deletion.
+Creates or validates all MMR tier roles plus the `Active Lobby`, `Website Moderator`, and `Guide Updates` notification defaults. Notification roles created by the bot are ownership-tracked; custom and legacy same-named roles are never adopted for automatic deletion.
 
 The bot reports created, existing, rejected, and failed roles separately. Existing roles are accepted only when they are unprivileged, unmanaged, assignable, and below the bot's highest role.
 
@@ -40,7 +40,25 @@ The bot reports created, existing, rejected, and failed roles separately. Existi
 
 Requires **Manage Server**.
 
-Displays the server's current leaderboard channel and limit, active-lobby channel, notification roles, moderator role, `/rank` cooldown, public-command whitelist and blacklist, and debug-export status. Long output is split across ephemeral follow-up messages.
+Displays the server's current leaderboard, active-lobby, and guide forum settings; notification roles; `/rank` cooldown; public-command rules; and debug-export status. Long output is split across ephemeral follow-up messages.
+
+## Guide configuration
+
+### `/config guides channel channel:<forum>`
+
+Sets the forum where one managed post is created per guide. The bot needs View Channel, Send Messages, Read Message History, Manage Threads, and Mention @everyone, @here, and All Roles.
+
+### `/config guides role role:<role>`
+
+Selects the safe role notified only for new or recovered guide posts. Omitting the role restores `Guide Updates`.
+
+### `/config guides automatic_deletion enabled:<bool>`
+
+Controls whether website-removed guides are archived (the default) or deleted.
+
+### `/config reset guides`
+
+Archives every tracked guide post and clears guide configuration, regardless of the automatic-deletion setting.
 
 ### `/config rank cooldown seconds:<0..3600>`
 

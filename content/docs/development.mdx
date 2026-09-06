@@ -17,7 +17,8 @@ description: Project layout, validation, data flow, dependencies, CI, and contri
 - `app/battlevive_bot/` - Discord orchestration, database access, rendering, roles, models, logging, and settings.
 - `app/init-db/` - PostgreSQL initialization schema.
 - `app/assets/` - fonts, rank art, maps, champion emoji sources, and attribution.
-- `app/data/` and `app/logs/` - runtime state.
+- `app/data/` - local runtime state; production uses a dedicated bot data path.
+- `infra/` - Terraform, SSM, monitoring, backup, recovery, and host automation.
 - `utils/` - setup and environment-generation helpers.
 - `tests/` - pytest suite.
 - `app/requirements.txt` - direct runtime dependencies.
@@ -28,8 +29,17 @@ description: Project layout, validation, data flow, dependencies, CI, and contri
 ```bash
 python -m compileall app utils
 pytest
-docker compose -f docker-compose.dev.yml up -d --build
+podman compose --env-file utils/.env \
+  -f docker-compose.yml -f docker-compose.dev.yml up -d --build
 ```
+
+`docker-compose.dev.yml` is an override: it builds the source once as
+`battlevive-bot:local` and supplies local runtime settings, while the base file
+defines PostgreSQL, persistent paths, networks, migrations, and health checks.
+Never run the override by itself. The `--env-file` supplies Compose
+interpolation values; set `BATTLEVIVE_ENV_FILE` only when the container
+env-file lives elsewhere. The local override uses rootless Podman's `:U` mount
+option so its fixed non-root bot user owns the persistent token directory.
 
 Default pytest discovery must remain CI-safe. Browser login, real Discord calls, and real Battlevive calls belong behind an explicit manual integration gate.
 
@@ -64,15 +74,15 @@ Commit both files together and verify that the lock remains installable for Linu
 
 ## Continuous integration
 
-The `Test and Publish` workflow runs compile checks and pytest before building images.
+The reusable quality workflow runs the hashed dependency set in this order: Python tests, Compose/migration checks, then AMD64 and QEMU ARM64 image smoke builds. Pull requests do not publish images.
 
-Pull requests build AMD64 and ARM64 images without pushing. Successful pushes to `main` publish:
+Only a stable `vMAJOR.MINOR.PATCH` GitHub Release publishes Docker Hub tags. The workflow tests the exact tag commit, enforces main ancestry, calculates SemVer aliases with backport protection, builds the multi-platform image once, verifies its OCI revision and architectures, and emits SBOM and provenance. Production receives the immutable manifest digest through GitHub OIDC and the reusable deploy contract; ordinary `main` pushes never publish `latest`.
 
-- `voxix/battlevive-bot:latest`;
-- `voxix/battlevive-bot:sha-<full-commit-sha>`.
-
-A failed test or platform build must not replace the existing `latest` image.
+`infra/tools/validate.sh` defines the infrastructure static gate: Terraform formatting and validation, recursive TFLint, HIGH/CRITICAL Trivy configuration scanning, ShellCheck, JSON validation, and Bash parsing. Pull-request CI must assume the read-only plan role through `infrastructure-plan`, run that gate, and publish a sanitized `infra/tools/terraform-ci.sh plan` result. Protected main apply uses `infrastructure-apply` and the exact reviewed plan. Live AWS, Discord, browser, SSM, and restore probes remain behind documented manual gates and must not be discoverable by normal `pytest`.
 
 ## Assets
 
 Review `app/assets/THIRD_PARTY_ASSETS.md` before modifying or redistributing bundled Battlerite material.
+# Guide reconciliation
+
+Guide forum reconciliation runs every five minutes. Source and service tests are CI-safe and use fixtures/fakes; live Discord forum publication, pings, recovery, archival, deletion, and reset are manual integration checks after regenerating and populating `utils/.env`.
