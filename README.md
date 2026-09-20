@@ -1,5 +1,7 @@
 # BattleVive Bot website
 
+> **Project shutdown:** Battlevive has been shut down. This website is retained for archival purposes.
+
 The website and documentation hub for
 [BattleVive Bot](https://github.com/BattleVive/discord-bot), a Discord bot
 that brings BattleVive competition directly into community servers.
